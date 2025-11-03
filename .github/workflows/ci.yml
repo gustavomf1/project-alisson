@@ -58,15 +58,15 @@ jobs:
           }"
 
       - name: Testa conexão com o banco
-  run: |
-    echo '<?php
-    try {
-        $pdo = new PDO("mysql:host=127.0.0.1;dbname=testdb", "root", "root");
-        echo "Conexão bem-sucedida!";
-    } catch (PDOException $e) {
-        echo "Erro: " . $e->getMessage();
-        exit(1);
-    }
-    ?>' > test_db.php
-    php test_db.php
+        run: |
+          echo '<?php
+          try {
+            $pdo = new PDO("mysql:host=127.0.0.1;dbname=testdb", "root", "root");
+            echo "Conexão bem-sucedida!";
+          } catch (PDOException $e) {
+            echo "Erro: " . $e->getMessage();
+            exit(1);
+          }
+          ?>' > test_db.php
+          php test_db.php
 
