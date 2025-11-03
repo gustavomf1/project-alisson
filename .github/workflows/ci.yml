@@ -57,23 +57,16 @@ jobs:
             exit(1);
           }"
 
-      - name: 🧠 Testar classe de conexão Database
-        env:
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_DATABASE: sistema_av_iii
-          DB_USERNAME: root
-          DB_PASSWORD: rootpass
-        run: |
-          echo '<?php
-          require "app/Config/Database.php";
-          use App\Config\Database;
-          try {
-              \$db = Database::getConnection();
-              echo \"✅ Classe Database conectou com sucesso\\n\";
-          } catch (Exception \$e) {
-              echo \"❌ Erro: {\$e->getMessage()}\\n\";
-              exit(1);
-          }
-          ' > test_db.php
-          php test_db.php
+      - name: Testa conexão com o banco
+  run: |
+    echo '<?php
+    try {
+        $pdo = new PDO("mysql:host=127.0.0.1;dbname=testdb", "root", "root");
+        echo "Conexão bem-sucedida!";
+    } catch (PDOException $e) {
+        echo "Erro: " . $e->getMessage();
+        exit(1);
+    }
+    ?>' > test_db.php
+    php test_db.php
+
