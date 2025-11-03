@@ -57,6 +57,17 @@ jobs:
             exit(1);
           }"
 
+      - name: Aguarda o MySQL iniciar
+        run: |
+          for i in {1..10}; do
+          if mysqladmin ping -h "mysql" --silent; then
+          echo "MySQL está pronto!"
+          break
+          fi
+          echo "Aguardando MySQL iniciar..."
+          sleep 5
+          done
+
       - name: Testa conexão com o banco
         run: |
           echo '<?php
