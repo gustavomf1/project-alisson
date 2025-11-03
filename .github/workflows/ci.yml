@@ -61,12 +61,13 @@ jobs:
         run: |
           echo '<?php
           try {
-            $pdo = new PDO("mysql:host=127.0.0.1;dbname=testdb", "root", "root");
-            echo "Conexão bem-sucedida!";
+          $pdo = new PDO("mysql:host=mysql;dbname=testdb", "root", "root");
+          echo "Conexao bem-sucedida!";
           } catch (PDOException $e) {
-            echo "Erro: " . $e->getMessage();
-            exit(1);
+          echo "Erro: " . $e->getMessage();
+          exit(1);
           }
           ?>' > test_db.php
           php test_db.php
+
 
