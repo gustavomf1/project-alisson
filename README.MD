@@ -17,3 +17,10 @@
 *Editar: http://localhost/phpfaculdade/aula_php/aula7/produtos/editar?id=2
 
 *Lembrando que o excluir e o editar de ambos está disponível através de um botão*
+
+Baixar código	Pega seu repositório do GitHub
+Instalar PHP	Usa o PHP 8.2 com suporte a MySQL
+Subir MySQL	Cria um banco de dados de teste temporário
+Rodar Composer	Instala dependências lá no ambiente (você não precisa instalar nada local)
+Testar conexão	Testa se o PHP consegue conectar no MySQL
+Rodar teste simples	Executa um pequeno teste de PHP pra confirmar que o workflow funciona

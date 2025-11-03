@@ -1,0 +1,60 @@
+name: CI - PHP com MySQL
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpass
+          MYSQL_DATABASE: sistema_av_iii
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -p rootpass"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: 📦 Baixar código
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Instalar PHP e extensões
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql
+
+      - name: 🧩 Instalar dependências (Composer no GitHub)
+        run: composer install --no-interaction --prefer-dist
+
+      - name: 🧪 Testar conexão com banco
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: sistema_av_iii
+          DB_USERNAME: root
+          DB_PASSWORD: rootpass
+        run: |
+          php -r "
+          try {
+            \$pdo = new PDO('mysql:host=127.0.0.1;port=3306;dbname=sistema_av_iii', 'root', 'rootpass');
+            echo '✅ Conexão com o banco funcionando!';
+          } catch (Exception \$e) {
+            echo '❌ Erro na conexão: ' . \$e->getMessage();
+            exit(1);
+          }"
+
+      - name: 🧪 Rodar testes simples
+        run: |
+          echo '<?php echo \"✅ CI funcionando!\"; ?>' > test.php
+          php test.php
