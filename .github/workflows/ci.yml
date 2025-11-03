@@ -1,10 +1,10 @@
-name: CI - PHP MVC com MySQL
+name: CI com MySQL
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "main" ]
 
 jobs:
   build-and-test:
@@ -19,50 +19,47 @@ jobs:
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h localhost"
+          --health-cmd="mysqladmin ping --silent"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=10
+          --health-retries=3
 
     steps:
       - name: Checkout do código
         uses: actions/checkout@v4
 
-      - name: Instalar PHP
+      - name: Configurar PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
 
-      - name: Instalar dependências (se existir composer.json)
-        run: |
-          if [ -f "composer.json" ]; then
-            composer install
-          else
-            echo "Nenhum composer.json encontrado, pulando instalação."
-          fi
+      - name: Instalar dependências (Composer)
+        run: composer install --no-interaction --no-progress
 
-      - name: Esperar MySQL iniciar
-        run: |
-          echo "Aguardando o MySQL ficar pronto..."
-          for i in {1..15}; do
-            if mysqladmin ping -h"127.0.0.1" --silent; then
-              echo "✅ MySQL está pronto!"
-              break
-            fi
-            echo "⏳ Tentando novamente ($i/15)..."
-            sleep 5
-          done
+      - name: Gerar autoload
+        run: composer dump-autoload
 
-      - name: Testar conexão PHP → MySQL
-        run: |
-          echo '<?php
-          try {
-              $pdo = new PDO("mysql:host=127.0.0.1;dbname=testdb", "root", "root");
-              echo \"✅ Conexao bem-sucedida!\";
-          } catch (PDOException $e) {
-              echo \"❌ Erro: \" . $e->getMessage();
-              exit(1);
-          }
-          ?>' > test_db.php
-          php test_db.php
+      - name: Instalar PHPUnit
+        run: composer require --dev phpunit/phpunit ^10
 
+      - name: Criar tabela categoria
+        env:
+          DB_HOST: mysql
+          DB_DATABASE: testdb
+          DB_USER: root
+          DB_PASSWORD: root
+        run: |
+          mysql -h $DB_HOST -u $DB_USER -p$DB_PASSWORD $DB_DATABASE -e "
+            CREATE TABLE IF NOT EXISTS categoria (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              nome VARCHAR(255) NOT NULL
+            );
+          "
+
+      - name: Rodar testes (PHPUnit)
+        env:
+          DB_HOST: mysql
+          DB_DATABASE: testdb
+          DB_USER: root
+          DB_PASSWORD: root
+        run: vendor/bin/phpunit
