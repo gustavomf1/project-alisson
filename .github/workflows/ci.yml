@@ -1,4 +1,4 @@
-name: CI - PHP com MySQL
+name: CI - PHP MVC com MySQL
 
 on:
   push:
@@ -19,13 +19,13 @@ jobs:
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h localhost -p rootpass"
+          --health-cmd="mysqladmin ping -h localhost -prootpass"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
 
     steps:
-      - name: 📦 Baixar código
+      - name: 📥 Clonar código
         uses: actions/checkout@v4
 
       - name: ⚙️ Instalar PHP e extensões
@@ -34,8 +34,11 @@ jobs:
           php-version: '8.2'
           extensions: pdo_mysql
 
-      - name: 🧩 Instalar dependências (Composer no GitHub)
+      - name: 🧩 Instalar dependências com Composer
         run: composer install --no-interaction --prefer-dist
+
+      - name: 🕒 Aguardar MySQL inicializar
+        run: sleep 15
 
       - name: 🧪 Testar conexão com banco
         env:
@@ -48,13 +51,29 @@ jobs:
           php -r "
           try {
             \$pdo = new PDO('mysql:host=127.0.0.1;port=3306;dbname=sistema_av_iii', 'root', 'rootpass');
-            echo '✅ Conexão com o banco funcionando!';
+            echo '✅ Conexão MySQL funcionando\n';
           } catch (Exception \$e) {
-            echo '❌ Erro na conexão: ' . \$e->getMessage();
+            echo '❌ Erro MySQL: ' . \$e->getMessage() . '\n';
             exit(1);
           }"
 
-      - name: 🧪 Rodar testes simples
+      - name: 🧠 Testar classe de conexão Database
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: sistema_av_iii
+          DB_USERNAME: root
+          DB_PASSWORD: rootpass
         run: |
-          echo '<?php echo \"✅ CI funcionando!\"; ?>' > test.php
-          php test.php
+          echo '<?php
+          require "app/Config/Database.php";
+          use App\Config\Database;
+          try {
+              \$db = Database::getConnection();
+              echo \"✅ Classe Database conectou com sucesso\\n\";
+          } catch (Exception \$e) {
+              echo \"❌ Erro: {\$e->getMessage()}\\n\";
+              exit(1);
+          }
+          ' > test_db.php
+          php test_db.php
