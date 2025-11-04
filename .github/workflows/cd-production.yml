@@ -10,162 +10,91 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # Job 1: Run CI first
-  ci:
-    name: Run CI Pipeline
-    uses: ./.github/workflows/ci.yml
-
-  # Job 2: Build and Push Docker Image
-  build-and-push:
-    name: Build and Push Docker Image
+  build-test-deploy:
     runs-on: ubuntu-latest
-    needs: ci
-    permissions:
-      contents: read
-      packages: write
-    
-    outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
-    
-    steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-    
-    - name: 🔐 Log in to GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: 🏷️ Extract metadata for Docker
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-          type=sha,prefix={{branch}}-
-          type=raw,value=latest,enable={{is_default_branch}}
-    
-    - name: 🔨 Build and push Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./Dockerfile
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-    
-    - name: ✅ Docker Build Success
-      run: echo "✅ Docker image built and pushed successfully!"
 
-  # Job 3: Deploy to VPS
-  deploy:
-    name: Deploy to VPS Locaweb
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    
-    steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-    
-    - name: 🔑 Configure SSH
-      run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
-        chmod 600 ~/.ssh/deploy_key
-        ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
-    
-    - name: 📋 Copy deployment files to VPS
-      run: |
-        scp -i ~/.ssh/deploy_key \
-          docker-compose.yml \
-          ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }}:/opt/myburguer/
-    
-    - name: 🗄️ Backup MySQL Database
-      run: |
-        ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
-          cd /opt/myburguer
-          
-          mkdir -p backups
-          
-          if docker ps | grep -q myburguer-mysql-prod; then
-            echo "📦 Creating database backup..."
-            BACKUP_FILE="backups/backup_$(date +%Y%m%d_%H%M%S).sql"
-            docker exec myburguer-mysql-prod sh -c 'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" myburguer' > $BACKUP_FILE
-            echo "✅ Backup created: $BACKUP_FILE"
-            
-            # Keep only last 7 backups
-            ls -t backups/backup_*.sql | tail -n +8 | xargs -r rm
-          else
-            echo "ℹ️ No running MySQL container to backup"
-          fi
-        EOF
-    
-    - name: 🐳 Pull new Docker image
-      run: |
-        ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
-          cd /opt/myburguer
-          echo "📥 Pulling new Docker image..."
-          
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          docker-compose -f docker-compose.yml pull api
-          
-          echo "✅ Image pulled successfully"
-        EOF
-    
-    - name: 🔄 Deploy application
-      run: |
-        ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
-          cd /opt/myburguer
-          echo "🔄 Deploying application..."
-          
-          docker-compose -f docker-compose.yml down
-          docker-compose -f docker-compose.yml up -d
-          
-          echo "✅ Containers started"
-        EOF
-    
-    - name: 🏥 Health check
-      run: |
-        ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
-          cd /opt/myburguer
-          
-          sleep 15
-          
-          if ! docker-compose -f docker-compose.yml ps | grep -q "Up"; then
-            echo "❌ Containers are not running!"
-            docker-compose -f docker-compose.yml logs
-            exit 1
-          fi
-          
-          MAX_RETRIES=10
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -f http://localhost:8080/health > /dev/null 2>&1; then
-              echo "✅ Health check passed!"
-              exit 0
-            fi
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            echo "⏳ Health check attempt $RETRY_COUNT/$MAX_RETRIES failed, retrying in 5s..."
-            sleep 5
-          done
-          
-          echo "❌ Health check failed after $MAX_RETRIES attempts"
-          docker-compose -f docker-compose.yml logs api
-          exit 1
-        EOF
-    
-    - name: 🧹 Cleanup
-      if: always()
-      run: rm -f ~/.ssh/deploy_key
-    
-    - name: ✅ Deployment Success
-      if: success()
-      run: echo "🎉 Deployment successful! Application is live on ${{ secrets.VPS_HOST }}"
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: testdb
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
 
-    - name: ❌ Deployment Failed
-      if: failure()
-      run: echo "❌ Deployment failed! Check VPS logs."
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Configurar PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+
+      - name: Instalar dependências (Composer)
+        run: composer install --no-interaction --no-progress
+
+      - name: Gerar autoload
+        run: composer dump-autoload
+
+      - name: Instalar PHPUnit
+        run: composer require --dev phpunit/phpunit ^10
+
+      - name: Criar tabela categoria
+        env:
+          DB_HOST: 127.0.0.1
+          DB_DATABASE: testdb
+          DB_USER: root
+          DB_PASSWORD: root
+        run: |
+          mysql -h $DB_HOST -u $DB_USER -p$DB_PASSWORD $DB_DATABASE -e "
+            CREATE TABLE IF NOT EXISTS categoria (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              nome VARCHAR(255) NOT NULL
+            );
+          "
+
+      - name: Rodar testes (PHPUnit)
+        env:
+          DB_HOST: 127.0.0.1
+          DB_DATABASE: testdb
+          DB_USER: root
+          DB_PASSWORD: root
+        run: vendor/bin/phpunit
+
+      - name: 🔐 Configurar SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: 📋 Copiar docker-compose para VPS
+        run: |
+          scp -i ~/.ssh/deploy_key docker-compose.yml ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }}:/opt/myburguer/
+
+      - name: 🐳 Build e Deploy no VPS
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
+            cd /opt/myburguer
+
+            echo "🔨 Pulling latest Docker image..."
+            docker-compose pull
+
+            echo "🔄 Parando containers antigos..."
+            docker-compose down
+
+            echo "🚀 Subindo novos containers..."
+            docker-compose up -d
+
+            echo "✅ Deploy finalizado"
+          EOF
+
+      - name: 🧹 Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
