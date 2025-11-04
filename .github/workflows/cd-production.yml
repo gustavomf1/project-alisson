@@ -47,8 +47,11 @@ jobs:
         ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
           cd /opt/sistema_av_iii
 
-          echo "🔄 Stopping old containers..."
-          docker-compose down
+          echo "🔄 Stopping and removing old containers..."
+          docker-compose down --remove-orphans
+          
+          echo "🧹 Force removing any conflicting containers..."
+          docker rm -f mvc_app_php mvc_app_web mvc_app_db 2>/dev/null || true
 
           echo "🔄 Building and starting all containers..."
           docker-compose up -d --build
