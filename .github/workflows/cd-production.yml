@@ -1,4 +1,5 @@
 name: CD - Deploy Production
+name: CD - Deploy Production
 
 on:
   push:
@@ -42,20 +43,27 @@ jobs:
           fi
         EOF
 
-    - name: 🔨 Build and deploy app container
+    - name: 🔨 Build and deploy containers
       run: |
         ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
           cd /opt/sistema_av_iii
 
-          echo "🔄 Stopping old app container..."
-          docker-compose stop app
-          docker-compose rm -f app
+          echo "🔄 Stopping old containers..."
+          docker-compose down
 
-          echo "🔄 Building and starting new app container..."
-          docker-compose up -d --build app
+          echo "🔄 Building and starting all containers..."
+          docker-compose up -d --build
 
-          echo "⏳ Waiting 15 seconds for app container to initialize..."
-          sleep 15
+          echo "✅ Verifying containers are running..."
+          docker-compose ps
+          if ! docker-compose ps | grep "Up"; then
+            echo "❌ Containers failed to start!"
+            docker-compose logs
+            exit 1
+          fi
+
+          echo "⏳ Waiting 30 seconds for containers to initialize..."
+          sleep 30
 
           echo "🔄 Running database migrations..."
           docker-compose exec -T app php artisan migrate || true
@@ -64,7 +72,7 @@ jobs:
           MAX_RETRIES=10
           RETRY_COUNT=0
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -f http://localhost:8080/health > /dev/null 2>&1; then
+            if curl -f http://localhost:8080/ > /dev/null 2>&1; then
               echo "✅ Health check passed!"
               exit 0
             fi
@@ -74,7 +82,12 @@ jobs:
           done
 
           echo "❌ Health check failed!"
+          echo "📋 Container status:"
+          docker-compose ps
+          echo "📋 Application logs:"
           docker-compose logs app
+          echo "📋 Nginx logs:"
+          docker-compose logs web
           exit 1
         EOF
 
