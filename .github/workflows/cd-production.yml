@@ -11,7 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
 
     steps:
     - name: 📥 Checkout code
@@ -35,37 +34,28 @@ jobs:
           cd /opt/sistema_av_iii
           mkdir -p backups
           if docker ps | grep -q mvc_app_db; then
-            echo "📦 Creating database backup..."
             BACKUP_FILE="backups/backup_$(date +%Y%m%d_%H%M%S).sql"
             docker-compose exec -T db mysqldump -uroot -prootpass sistema_av_iii > $BACKUP_FILE
             echo "✅ Backup created: $BACKUP_FILE"
             # Keep last 7 backups
             ls -t backups/backup_*.sql | tail -n +8 | xargs -r rm
-          else
-            echo "ℹ️ Database container not running, skipping backup"
           fi
         EOF
 
-    - name: 🔨 Build and deploy containers
+    - name: 🔨 Build and deploy app container
       run: |
         ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
           cd /opt/sistema_av_iii
 
-          echo "🔄 Stopping old containers..."
-          docker-compose down --remove-orphans
+          echo "🔄 Stopping old app container..."
+          docker-compose stop app
+          docker-compose rm -f app
 
-          echo "🔄 Building and starting new containers..."
-          docker-compose up -d --build --force-recreate
+          echo "🔄 Building and starting new app container..."
+          docker-compose up -d --build app
 
-          echo "⏳ Waiting 15 seconds for containers to initialize..."
+          echo "⏳ Waiting 15 seconds for app container to initialize..."
           sleep 15
-
-          # Check if app container is running
-          if ! docker ps | grep -q mvc_app_php; then
-            echo "❌ Container da aplicação não iniciou!"
-            docker-compose logs app
-            exit 1
-          fi
 
           echo "🔄 Running database migrations..."
           docker-compose exec -T app php artisan migrate || true
