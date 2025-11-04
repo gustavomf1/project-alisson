@@ -11,81 +11,95 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout do código
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
 
-      # 2. Configurar SSH
-      - name: 🔑 Configure SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+    - name: 🔑 Configure SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
-      # 3. Copiar docker-compose.yml e código para VPS
-      - name: 📋 Copy deployment files to VPS
-        run: |
-          scp -i ~/.ssh/deploy_key -r ./* ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }}:/opt/sistema_av_iii/
+    - name: 📋 Copy docker-compose to VPS
+      run: |
+        scp -i ~/.ssh/deploy_key docker-compose.yml \
+        ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }}:/opt/sistema_av_iii/
 
-      # 4. Criar backup do banco MySQL
-      - name: 🗄️ Backup MySQL Database
-        run: |
-          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
-            cd /opt/sistema_av_iii
-            mkdir -p backups
-            if docker ps | grep -q mvc_app_db; then
-              echo "📦 Creating database backup..."
-              BACKUP_FILE="backups/backup_$(date +%Y%m%d_%H%M%S).sql"
-              docker exec mvc_app_db /usr/bin/mysqldump -uroot -prootpass sistema_av_iii > $BACKUP_FILE
-              echo "✅ Backup created: $BACKUP_FILE"
-              # Keep only last 7 backups
-              ls -t backups/backup_*.sql | tail -n +8 | xargs -r rm
-            else
-              echo "ℹ️ No running database container to backup"
-            fi
-          EOF
+    - name: 🗄️ Backup MySQL Database
+      run: |
+        ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
+          cd /opt/sistema_av_iii
 
-      # 5. Deploy com Docker Compose
-      - name: 🔄 Deploy application
-        run: |
-          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
-            cd /opt/sistema_av_iii
-            echo "🔄 Stopping old containers..."
-            docker-compose down
-            echo "🔄 Starting new containers..."
-            docker-compose up -d --build
-            echo "✅ Containers started"
-          EOF
+          mkdir -p backups
+          if docker ps | grep -q db; then
+            echo "📦 Creating database backup..."
+            BACKUP_FILE="backups/backup_$(date +%Y%m%d_%H%M%S).sql"
+            docker-compose exec -T db mysqldump -u root -prootpass sistema_av_iii > $BACKUP_FILE
+            echo "✅ Backup created: $BACKUP_FILE"
+            
+            # Keep only last 7 backups
+            ls -t backups/backup_*.sql | tail -n +8 | xargs -r rm
+          else
+            echo "ℹ️ No running DB container to backup"
+          fi
+        EOF
 
-      # 6. Health check
-      - name: 🏥 Health check
-        run: |
-          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
-            cd /opt/sistema_av_iii
-            sleep 10
-            if ! docker-compose ps | grep -q "Up"; then
-              echo "❌ Containers are not running!"
-              docker-compose logs
-              exit 1
-            fi
-            if curl -f http://localhost:8080 > /dev/null 2>&1; then
+    - name: 🔄 Deploy application
+      run: |
+        ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
+          cd /opt/sistema_av_iii
+
+          echo "🔄 Stopping old containers..."
+          docker-compose down --remove-orphans
+
+          echo "🔄 Building and starting new containers..."
+          docker-compose up -d --build
+
+          echo "✅ Containers started"
+
+          echo "🔄 Running database migrations..."
+          # Ajuste o comando se for outro tipo de aplicação
+          docker-compose exec -T app php artisan migrate || true
+
+          echo "✅ Migrations completed"
+
+          echo "🏥 Health check..."
+          sleep 10
+          MAX_RETRIES=10
+          RETRY_COUNT=0
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -f http://localhost:8080/health > /dev/null 2>&1; then
               echo "✅ Health check passed!"
-            else
-              echo "❌ Health check failed!"
-              docker-compose logs
-              exit 1
+              exit 0
             fi
-          EOF
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "⏳ Health check attempt $RETRY_COUNT/$MAX_RETRIES failed, retrying in 5s..."
+            sleep 5
+          done
+          echo "❌ Health check failed!"
+          docker-compose logs app
+          exit 1
+        EOF
 
-      # 7. Cleanup
-      - name: 🧹 Cleanup
-        if: always()
-        run: rm -f ~/.ssh/deploy_key
+    - name: 🧹 Cleanup SSH
+      if: always()
+      run: rm -f ~/.ssh/deploy_key
 
-      # 8. Deployment Success
-      - name: ✅ Deployment Success
-        if: success()
-        run: |
-          echo "🎉 Deployment successful!"
-          echo "📌 URL: http://${{ secrets.VPS_HOST }}:8080"
+    - name: ✅ Deployment Success
+      if: success()
+      run: |
+        echo "🎉 =================================="
+        echo "🎉 DEPLOYMENT SUCCESSFUL!"
+        echo "🎉 =================================="
+        echo "✅ Application deployed to: ${{ secrets.VPS_HOST }}"
+        echo "✅ Branch: ${{ github.ref_name }}"
+        echo "🔗 Access your application at: http://${{ secrets.VPS_HOST }}:8080"
+
+    - name: ❌ Deployment Failed
+      if: failure()
+      run: |
+        echo "❌ =================================="
+        echo "❌ DEPLOYMENT FAILED!"
+        echo "❌ =================================="
+        echo "Check the logs above for details."
